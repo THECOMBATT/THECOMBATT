@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestor S3 - Minimalista</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: #faf8f5;
+            color: #2b2b2b;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-6">
+
+    <div class="w-full max-w-2xl bg-white border border-[#e6e2dd] rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-8">
+        
+        <div class="mb-8">
+            <span class="text-xs uppercase tracking-widest text-[#8c857b] font-semibold">Infraestructura Serverless</span>
+            <h1 class="text-2xl font-bold text-[#1a1a1a] mt-1">Almacenamiento Seguro S3</h1>
+        </div>
+
+        <div class="mb-10 bg-[#f7f5f0] border border-[#eee9e2] rounded-xl p-6 transition-all">
+            <h2 class="text-sm font-semibold text-[#4a453f] uppercase tracking-wider mb-4">Cargar nuevo documento</h2>
+            
+            <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
+                <label class="flex-1 cursor-pointer bg-white border border-[#dcd6ce] hover:border-[#b5aca1] text-[#555] px-4 py-3 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 shadow-sm">
+                    <svg class="w-4 h-4 text-[#777]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                    <span id="labelArchivo">Seleccionar archivo...</span>
+                    <input type="file" id="archivo" class="hidden" onchange="actualizarNombre(this)">
+                </label>
+                
+                <button onclick="subirArchivo()" id="btnSubir" class="bg-[#1a1a1a] hover:bg-[#333] text-white font-medium px-6 py-3 rounded-xl text-sm transition shadow-sm disabled:opacity-50">
+                    Subir a AWS
+                </button>
+            </div>
+            <p id="mensajeEstado" class="text-xs mt-3 font-medium transition-all"></p>
+        </div>
+
+        <div>
+            <h2 class="text-sm font-semibold text-[#4a453f] uppercase tracking-wider mb-4">Archivos en el Servidor</h2>
+            <div class="border border-[#e6e2dd] rounded-xl overflow-hidden bg-white">
+                <table class="w-full text-left border-collapse text-sm">
+                    <thead>
+                        <tr class="bg-[#f9f8f6] text-[#777] border-b border-[#e6e2dd] text-xs uppercase tracking-wider">
+                            <th class="p-4 font-semibold">Archivo</th>
+                            <th class="p-4 font-semibold">Estado</th>
+                            <th class="p-4 font-semibold text-right">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tablaArchivos" class="divide-y divide-[#f2efe9]">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function actualizarNombre(input) {
+            const label = document.getElementById("labelArchivo");
+            if (input.files && input.files[0]) {
+                label.innerText = input.files[0].name;
+            } else {
+                label.innerText = "Seleccionar archivo...";
+            }
+        }
+
+        async function subirArchivo() {
+            const inputArchivo = document.getElementById("archivo");
+            const btnSubir = document.getElementById("btnSubir");
+            const archivo = inputArchivo.files[0];
+
+            if (!archivo) {
+                mostrarMensaje("Por favor selecciona un archivo primero.", "text-rose-600");
+                return;
+            }
+
+            const tamanoMaximo = 20 * 1024 * 1024;
+            if (archivo.size > tamanoMaximo) {
+                mostrarMensaje("El archivo supera el límite permitido de 20MB.", "text-rose-600");
+                return;
+            }
+
+            btnSubir.disabled = true;
+            btnSubir.innerText = "Subiendo...";
+            mostrarMensaje("Solicitando permisos seguros...", "text-stone-500");
+
+            try {
+                const tipoArchivo = archivo.type || "application/octet-stream";
+                
+                // URL configurada con tu API Gateway personalizada
+                const urlApi = `https://bsyebtjgg2.execute-api.us-east-1.amazonaws.com/prod/generarURL?archivo=${encodeURIComponent(archivo.name)}`;
+                
+                const respuesta = await fetch(urlApi);
+                const datos = await respuesta.json();
+
+                if (!datos.url) throw new Error("No se recibió la URL firmada");
+
+                mostrarMensaje("Transfiriendo al almacenamiento privado...", "text-stone-500");
+
+                const subidaS3 = await fetch(datos.url, {
+                    method: "PUT",
+                    body: archivo,
+                    headers: {
+                        "Content-Type": tipoArchivo
+                    }
+                });
+
+                if (subidaS3.ok) {
+                    mostrarMensaje("¡Archivo cargado correctamente en el bucket privado!", "text-emerald-700");
+                    inputArchivo.value = "";
+                    document.getElementById("labelArchivo").innerText = "Seleccionar archivo...";
+                    agregarFilaTabla(archivo.name);
+                } else {
+                    throw new Error("Error al subir a S3");
+                }
+            } catch (error) {
+                console.error(error);
+                mostrarMensaje("Error en la carga: " + error.message, "text-rose-600");
+            } finally {
+                btnSubir.disabled = false;
+                btnSubir.innerText = "Subir a AWS";
+            }
+        }
+
+        function cargarArchivos() {}
+
+        function agregarFilaTabla(nombreArchivo) {
+            const tbody = document.getElementById("tablaArchivos");
+            const tr = document.createElement("tr");
+            tr.className = "hover:bg-[#faf8f5] transition-colors";
+            const idFila = 'fila-' + Math.random().toString(36).substr(2, 9);
+            tr.id = idFila;
+
+            tr.innerHTML = `
+                <td class="p-4 font-medium text-[#222] truncate max-w-[200px]">${nombreArchivo}</td>
+                <td class="p-4">
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-800">
+                        Sincronizado
+                    </span>
+                </td>
+                <td class="p-4 text-right space-x-3">
+                    <button onclick="actualizarArchivo('${idFila}')" class="text-stone-500 hover:text-black font-medium text-xs">Editar</button>
+                    <button onclick="borrarArchivo('${idFila}', '${nombreArchivo}')" class="text-rose-500 hover:text-rose-700 font-medium text-xs">Borrar</button>
+                </td>
+            `;
+            tbody.insertBefore(tr, tbody.firstChild);
+        }
+
+        function actualizarArchivo(idFila) {
+            alert("Acción de actualización simulada.");
+        }
+
+        function borrarArchivo(idFila, nombre) {
+            if (confirm(`¿Estás seguro de que deseas eliminar "${nombre}"?`)) {
+                document.getElementById(idFila).remove();
+            }
+        }
+
+        function mostrarMensaje(texto, claseColor) {
+            const msj = document.getElementById("mensajeEstado");
+            msj.innerText = texto;
+            msj.className = `text-xs mt-3 font-medium ${claseColor}`;
+        }
+
+        window.onload = cargarArchivos;
+    </script>
+</body>
+</html>
